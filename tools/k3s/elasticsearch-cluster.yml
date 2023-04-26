@@ -1,0 +1,298 @@
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: es-limits
+  namespace: demo
+spec:
+  limits:
+    - max:
+        memory: 512Mi
+        cpu:  800m
+      min:
+        memory: 256Mi
+        cpu: 200m
+      type: Container
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: es
+  namespace: demo
+spec:
+  selector:
+    role: master
+  ports:
+  - name: transport
+    port: 9300
+    protocol: TCP
+  clusterIP: None
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: es-master-config
+  namespace: demo
+  labels: 
+    role: master
+data:
+  elasticsearch.yml: |
+    cluster.nam: "demo"
+    bootstrap.memory_lock: False
+    network.host: "0.0.0.0"
+    discovery.zen.ping.unicast.hosts: es
+    discovery.zen.minimum_master_nodes: 1
+    action.destructive_requires_name: true
+    node.master: true
+    node.data: false
+    node.ingest: false
+    cluster.remote.connect: false
+  ES_JAVA_OPTS: -Xms512m -Xmx512m
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: es-master
+  namespace: demo
+  labels:
+    role: master
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      role: master
+  template:
+    metadata:
+      labels:
+        role: master
+    spec:
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+      - name: sysctl-config
+        image: busybox
+        securityContext:
+          privileged: true
+        command: ["sysctl", "-w", "vm.max_map_count=262144"]
+      containers:
+      - name: es-master
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.7.0
+        securityContext:
+          privileged: true
+          runAsUser: 1000
+          capabilities:
+            add:
+            - IPC_LOCK
+            - SYS_RESOURCE
+        env:
+        - name: ES_JAVA_OPTS
+          valueFrom:
+            configMapKeyRef:
+              name: es-master
+              key: ES_JAVA_OPTS
+        readinessProbe:
+          httpGet:
+            scheme: HTTP
+            path: /_cluster/health?local=true
+            port: 9200
+        ports:
+        - containerPort: 9200
+          name: es-http
+        - containerPort: 9300
+          name: es-transport
+        volumeMounts:
+        - name: es-master-config
+          mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
+          subPath: elasticsearch.yml
+      volumes:
+      - name: es-master-config
+        configMap:
+          name: es-master
+          items:
+            - key: elasticsearch.yml
+              path: elasticsearch.yml
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: es-data
+  labels:
+    role: data
+data:
+  elasticsearch.yml: |
+    cluster.name: "demo"
+    bootstrap.memory_lock: False
+    network.host: "0.0.0.0"
+    discovery.zen.ping.unicast.hosts: es
+    discovery.zen.minimum_master_nodes: 1
+    action.destructive_requires_name: true
+    node.master: false
+    node.data: true
+    node.ingest: false
+    cluster.remote.connect: false
+  ES_JAVA_OPTS: -Xms512m -Xmx512m
+---
+apiVersion: apps/v1
+kind: StatefulSet 
+metadata:
+  name: es-data
+  labels:
+    role: data
+spec:
+  serviceName: es-master
+  replicas: 1
+  selector:
+    matchLabels:
+      role: data
+  template:
+    metadata:
+      labels:
+        role: data
+    spec:
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+      - name: sysctl-config
+        image: busybox
+        securityContext: 
+          privileged: true
+        command: ["sysctl", "-w", "vm.max_map_count=262144"]
+      containers:
+      - name: es-data
+        image: docker.elastic.co/elasticsearch/elasticsearch:8.7.0
+        securityContext:
+          privileged: true
+          runAsUser: 1000
+          capabilities:
+            add:
+            - IPC_LOCK
+            - SYS_RESOURCE
+        env:
+        - name: ES_JAVA_OPTS
+          valueFrom:
+            configMapKeyRef:
+              name: es-data
+              key: ES_JAVA_OPTS
+        readinessProbe:
+          httpGet:
+            scheme: HTTP
+            path: /_cluster/health?local=true
+            port: 9200
+        ports:
+        - containerPort: 9200
+          name: es-http
+        - containerPort: 9300
+          name: es-transport
+        volumeMounts:
+        - name: es-data-dir
+          mountPath: /usr/share/elasticsearch/data
+        - name: es-data-config
+          mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
+          subPath: elasticsearch.yml
+      volumes:
+      - name: es-data-config
+        configMap:
+          name: es-data
+          items:
+            - key: elasticsearch.yml
+              path: elasticsearch.yml
+      - name: es-data-dir
+        #       persistentVolumeClaim:
+        #          claimName: es-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: es-client
+  labels:
+    role: client
+data:
+  elasticsearch.yml: |
+    cluster.name: "SuperGun"
+    bootstrap.memory_lock: False
+    network.host: "0.0.0.0"
+    discovery.zen.ping.unicast.hosts: es
+    discovery.zen.minimum_master_nodes: 1
+    action.destructive_requires_name: true
+    node.master: false
+    node.data: false
+    node.ingest: false
+    cluster.remote.connect: false
+  ES_JAVA_OPTS: -Xms512m -Xmx512m
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: es-client
+  labels:
+    role: client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      role: client
+  template:
+    metadata:
+      labels:
+        role: client
+    spec:
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+      - name: sysctl-config
+        image: busybox
+        securityContext:
+          privileged: true
+        command: ["sysctl", "-w", "vm.max_map_count=262144"]
+      containers:
+      - name: es-master
+        image: docker.elastic.co/elasticsearch/elasticsearch:6.5.0
+        securityContext:
+          privileged: true
+          runAsUser: 1000
+          capabilities:
+            add:
+            - IPC_LOCK
+            - SYS_RESOURCE
+        env:
+        - name: ES_JAVA_OPTS
+          valueFrom:
+            configMapKeyRef:
+              name: es-client
+              key: ES_JAVA_OPTS
+        readinessProbe:
+          httpGet:
+            scheme: HTTP
+            path: /_cluster/health?local=true
+            port: 9200
+        ports:
+        - containerPort: 9200
+          name: es-http
+        - containerPort: 9300
+          name: es-transport
+        volumeMounts:
+        - name: es-client-config
+          mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
+          subPath: elasticsearch.yml
+      volumes:
+      - name: es-client-config
+        configMap:
+          name: es-client
+          items:
+            - key: elasticsearch.yml
+              path: elasticsearch.yml
+---
+apiVersion: v1
+kind: Service 
+metadata:
+  name: es-service
+  labels:
+    role: client
+spec:
+  selector:
+    role: client
+  ports:
+  - name: es-http
+    port: 8080
+    targetPort: 9200
+  type: NodePort
