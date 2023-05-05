@@ -1,0 +1,9 @@
+- name: demo play
+  hosts: "{{target_host}}"
+  remote_user: ubuntu
+  tasks:
+    - name: start the server
+      systemd:
+        name: metricbeat
+        state: started
+
