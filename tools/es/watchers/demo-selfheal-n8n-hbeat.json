@@ -1,0 +1,56 @@
+{
+  "trigger": {
+    "schedule": {
+      "interval": "15m"
+    }
+  },
+  "input": {
+    "search": {
+      "request": {
+        "search_type": "query_then_fetch",
+        "indices": [
+          "heartbeat-*"
+        ],
+        "rest_total_hits_as_int": true,
+        "template": {
+          "id": "beat_down",
+          "params": {
+            "monitorid": "metribeat-down-monitor",
+            "range": "now-15m",
+            "status": "down"
+          }
+        }
+      }
+    }
+  },
+  "condition": {
+    "compare": {
+      "ctx.payload.hits.total": {
+        "gt": 0
+      }
+    }
+  },
+  "actions": {
+    "jenkins_webhook": {
+      "webhook": {
+        "scheme": "http",
+        "host": "192.168.64.5",
+        "port": 5678,
+        "method": "get",
+        "path": "/webhook/26e2e70a-0527-46e4-8435-818878a65808",
+        "params": {},
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": """{
+            "payload": {
+              "ip": "{{ctx.payload.hits.hits.0._source.monitor.ip}}"
+                
+        }
+          
+        }
+        """
+      }
+    }
+  }
+}

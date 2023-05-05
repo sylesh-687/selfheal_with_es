@@ -1,0 +1,47 @@
+{
+  "trigger": {
+    "schedule": {
+      "interval": "15m"
+    }
+  },
+  "input": {
+    "search": {
+      "request": {
+        "search_type": "query_then_fetch",
+        "indices": [
+          "metricbeat-*"
+        ],
+        "rest_total_hits_as_int": true,
+        "template": {
+          "id": "disk",
+          "params": {
+            "beatname": "es",
+            "range": "now-15m",
+            "devicename": "/dev/sda1"
+          }
+        }
+      }
+    }
+  },
+  "condition": {
+    "script": {
+      "id": "disk_alerts"
+    }
+  },
+  "actions": {
+    "jenkins_webhook": {
+      "webhook": {
+        "scheme": "http",
+        "host": "192.168.64.2",
+        "port": 32000,
+        "method": "post",
+        "path": "/job/demo-selfheal/build?token=1124664e52b5f2db5fa32164f0e15eb09e",
+        "params": {},
+        "headers": {
+          "Authorization": "::es_redacted::",
+          "Jenkins-Crumb": "Jenkins-Crumb:a5ba88c04e5f0270d2ba22541753ee5a7f8f13e8d7ee58b612f53c32960a1f8d"
+        }
+      }
+    }
+  }
+}
